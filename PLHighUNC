@@ -1,0 +1,1978 @@
+
+local Workspace, RunService, Players, CoreGui, Lighting = cloneref(game:GetService("Workspace")), cloneref(game:GetService("RunService")), cloneref(game:GetService("Players")), game:GetService("CoreGui"), cloneref(game:GetService("Lighting"))
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")
+local Teams = game:GetService("Teams")
+local guardsTeam = Teams:FindFirstChild("Guards")
+local inmatesTeam = Teams:FindFirstChild("Inmates")
+local criminalsTeam = Teams:FindFirstChild("Criminals")
+
+local hook = newcclosure(function() return end)
+for _, obj in getgc(false) do 
+	if typeof(obj) == "function" then 
+		local source = debug.info(obj, "s")
+		if source and source:find("CharacterCollision") then 
+			hookfunction(obj, hook)
+		end
+	end
+end
+local SilentAim = false      
+local TeamCheck = true    
+local SPECIAL_NAME = "ObfHub"
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local lp = Players.LocalPlayer
+local Teams = game:GetService("Teams")
+local Workspace = workspace
+
+local FOVRadius = 100 -- FOV in pixels
+local hp = {
+    "Head","UpperTorso","LowerTorso",
+    "LeftUpperArm","RightUpperArm",
+    "LeftLowerArm","RightLowerArm",
+    "LeftUpperLeg","RightUpperLeg",
+    "LeftLowerLeg","RightLowerLeg",
+    "RightHand","LeftHand",
+    "RightFoot","LeftFoot"
+}
+
+local ch = hp[1] -- current hitpart
+local TargetPlayer = nil
+
+-- 🔹 Random hitpart selector
+task.spawn(function()
+    while task.wait(0.1) do
+        ch = hp[math.random(1, #hp)]
+    end
+end)
+
+-- 🔹 Team-based hostility
+local function isHostileTeam(player)
+    if not player.Team or not lp.Team then return true end
+    local myTeam = lp.Team.Name
+    local theirTeam = player.Team.Name
+    if myTeam == "Criminals" then
+        return theirTeam ~= "Criminals"
+    elseif myTeam == "Guards" then
+        return theirTeam ~= "Guards"
+    elseif myTeam == "Inmates" then
+        return theirTeam ~= "Inmates"
+    else
+        return true
+    end
+end
+
+-- 🔹 Game attributes hostile check
+local function isHostileChar(char)
+    local at = char:GetAttributes()
+    if at.Hostile or at.Trespassing then return true end
+    if char:FindFirstChildOfClass("ForceField") then return true end
+    if char:FindFirstChild("Hostile") then return true end
+    return false
+end
+
+-- 🔹 Visibility check
+local function isVisible(part)
+    local cam = Workspace.CurrentCamera
+    local char = lp.Character
+    if not char then return false end
+    local origin = cam.CFrame.Position
+    local direction = (part.Position - origin)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {char, part.Parent}
+    params.IgnoreWater = true
+    local result = Workspace:Raycast(origin, direction, params)
+    return not result or result.Instance:IsDescendantOf(part.Parent)
+end
+
+-- 🔹 Target selection inside FOV
+local function getTarget(hitpart, fov)
+    if not SilentAim then
+        TargetPlayer = nil
+        return nil, nil
+    end
+
+    local cam = Workspace.CurrentCamera
+    local center = cam.ViewportSize / 2
+    local closest, pos, minDist = nil, nil, fov
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == lp then continue end
+        if TeamCheck and p.Team == lp.Team then continue end
+        local char = p.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+
+        if not (isHostileTeam(p) or isHostileChar(char)) then continue end
+
+        -- Find hit part
+        local part = char:FindFirstChild(hitpart)
+        if not part then
+            for _, nm in ipairs(hp) do
+                part = char:FindFirstChild(nm)
+                if part then break end
+            end
+        end
+        if not part then part = char:FindFirstChild("HumanoidRootPart") end
+        if not part then continue end
+        if not isVisible(part) then continue end
+
+        local screen, onScreen = cam:WorldToViewportPoint(part.Position)
+        if not onScreen or screen.Z <= 0 then continue end
+
+        local distToCenter = (Vector2.new(screen.X, screen.Y) - center).Magnitude
+        -- 🔹 Only consider targets inside FOV radius
+        if distToCenter <= fov and distToCenter < minDist then
+            closest = p
+            pos = part.Position
+            minDist = distToCenter
+        end
+    end
+
+    TargetPlayer = closest
+    return closest, pos
+end
+
+-- 🔹 Hook Silent Aim
+local castRay = filtergc("function", {Name = "castRay"}, true)
+local old
+old = hookfunction(castRay, function(...)
+    if SilentAim then
+        local target, pos = getTarget(ch, FOVRadius)
+        TargetPlayer = target
+        if target and pos then
+            local part = target.Character:FindFirstChild(ch)
+                or target.Character:FindFirstChild("HumanoidRootPart")
+            return part, pos
+        end
+    end
+    TargetPlayer = nil
+    return old(...)
+end)
+
+-- 🔹 Chams color function (unchanged)
+local function getChamsColor(player)
+    if TargetPlayer and player == TargetPlayer then
+        return Color3.fromRGB(255, 0, 242)
+    end
+    if ESP.Options.Friendcheck and lp:IsFriendsWith(player.UserId) then
+        return ESP.Options.FriendcheckRGB
+    end
+    if player.Team then
+        if player.Team.Name == "Criminals" then
+            return Color3.fromRGB(255, 0, 0)
+        elseif player.Team.Name == "Inmates" then
+            return Color3.fromRGB(255, 165, 0)
+        elseif player.Team.Name == "Guards" then
+            return Color3.fromRGB(0, 0, 255)
+        else
+            return ESP.Options.HighlightRGB
+        end
+    else
+        return ESP.Options.HighlightRGB
+    end
+end
+
+local fovCircle = Drawing.new("Circle")
+fovCircle.Radius = FOVRadius
+fovCircle.Filled = false
+fovCircle.NumSides = 64
+fovCircle.Thickness = 2
+fovCircle.Color = Color3.fromRGB(242,0,255)
+fovCircle.Visible = false
+
+RunService.RenderStepped:Connect(function()
+    local cam = Workspace.CurrentCamera
+    local vs = cam.ViewportSize
+    fovCircle.Position = Vector2.new(vs.X/2, vs.Y/2)
+   
+end)
+
+
+
+
+
+local ESP = {
+    Enabled = false,
+    TeamCheck = false,
+    MaxDistance = 1000,
+    FontSize = 11,
+    FadeOut = {
+        OnDistance = false,
+        OnDeath = false,
+        OnLeave = false,
+    },
+    Options = { 
+        Teamcheck = false, TeamcheckRGB = Color3.fromRGB(0, 255, 0),
+        Friendcheck = true, FriendcheckRGB = Color3.fromRGB(0, 255, 0),
+        Highlight = false, HighlightRGB = Color3.fromRGB(255, 0, 0),
+    },
+    Drawing = {
+        Chams = {
+            Enabled  = true,
+            Thermal = true,
+            FillRGB = Color3.fromRGB(255, 0, 242),
+            Fill_Transparency = 100,
+            OutlineRGB = Color3.fromRGB(255, 0, 242),
+            Outline_Transparency = 100,
+            VisibleCheck = false,
+        },
+        Names = {
+            Enabled = false,
+            RGB = Color3.fromRGB(255, 255, 255),
+        },
+        Flags = {
+            Enabled = false,
+        },
+        Distances = {
+            Enabled = true, 
+            Position = "Text",
+            RGB = Color3.fromRGB(255, 255, 255),
+        },
+        Weapons = {
+            Enabled = true, WeaponTextRGB = Color3.fromRGB(119, 120, 255),
+            Outlined = false,
+            Gradient = false,
+            GradientRGB1 = Color3.fromRGB(255, 255, 255), GradientRGB2 = Color3.fromRGB(119, 120, 255),
+        },
+        Healthbar = {
+            Enabled = true,  
+            HealthText = true, Lerp = false, HealthTextRGB = Color3.fromRGB(242, 0, 255),
+            Width = 2.5,
+            Gradient = true, GradientRGB1 = Color3.fromRGB(200, 0, 0), GradientRGB2 = Color3.fromRGB(131, 1, 125), GradientRGB3 = Color3.fromRGB(255, 0, 242), 
+        },
+        Boxes = {
+            Animate = true,
+            RotationSpeed = 300,
+            Gradient = false, GradientRGB1 = Color3.fromRGB(119, 120, 255), GradientRGB2 = Color3.fromRGB(0, 0, 0), 
+            GradientFill = true, GradientFillRGB1 = Color3.fromRGB(255, 0, 242), GradientFillRGB2 = Color3.fromRGB(0, 0, 0), 
+            Filled = {
+                Enabled = false,
+                Transparency = 0.75,
+                RGB = Color3.fromRGB(0, 0, 0),
+            },
+            Full = {
+                Enabled = true,
+                RGB = Color3.fromRGB(255, 255, 255),
+            },
+            Corner = {
+                Enabled = true,
+                RGB = Color3.fromRGB(255, 255, 255),
+            },
+        };
+    };
+    Connections = {
+        RunService = RunService;
+    };
+    Fonts = {};
+}
+
+
+local Euphoria = ESP.Connections;
+local lplayer = Players.LocalPlayer;
+local camera = game.Workspace.CurrentCamera;
+local Cam = Workspace.CurrentCamera;
+local RotationAngle, Tick = -45, tick();
+
+local ICON_SIZE = Vector2.new(256, 256)
+
+-- WEAPON CROP MAP (spritesheet)
+local Weapon_Crop = {
+    ["M4A1"] = Vector2.new(0, 256),
+    ["AK-47"] = Vector2.new(0, 128),
+    ["MP5"] = Vector2.new(0, 384),
+    ["Remington 870"] = Vector2.new(256, 0),
+}
+-- Functions
+
+local function getEquippedTool(character)
+    if not character then return nil end
+    for _, v in ipairs(character:GetChildren()) do
+        if v:IsA("Tool") then
+            return v
+        end
+    end
+    return nil
+end
+
+local Functions = {}
+do
+    function Functions:Create(Class, Properties)
+        local _Instance = typeof(Class) == 'string' and Instance.new(Class) or Class
+        for Property, Value in pairs(Properties) do
+            _Instance[Property] = Value
+        end
+        return _Instance;
+    end
+    --
+    function Functions:FadeOutOnDist(element, distance)
+        local transparency = math.max(0.1, 1 - (distance / ESP.MaxDistance))
+        if element:IsA("TextLabel") then
+            element.TextTransparency = 1 - transparency
+        elseif element:IsA("ImageLabel") then
+            element.ImageTransparency = 1 - transparency
+        elseif element:IsA("UIStroke") then
+            element.Transparency = 1 - transparency
+        elseif element:IsA("Frame") and (element == Healthbar or element == BehindHealthbar) then
+            element.BackgroundTransparency = 1 - transparency
+        elseif element:IsA("Frame") then
+            element.BackgroundTransparency = 1 - transparency
+        elseif element:IsA("Highlight") then
+            element.FillTransparency = 1 - transparency
+            element.OutlineTransparency = 1 - transparency
+        end;
+    end;  
+end;
+
+do -- Initalize
+    local ScreenGui = Functions:Create("ScreenGui", {
+        Parent = CoreGui,
+        Name = "ESPHolder",
+    });
+
+    local DupeCheck = function(plr)
+        if ScreenGui:FindFirstChild(plr.Name) then
+            ScreenGui[plr.Name]:Destroy()
+        end
+    end
+
+    local ESP = function(plr)
+        coroutine.wrap(DupeCheck)(plr) -- Dupecheck
+        local Name = Functions:Create("TextLabel", {Parent = ScreenGui, Position = UDim2.new(0.5, 0, 0, -11), Size = UDim2.new(0, 100, 0, 20), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Code, TextSize = ESP.FontSize, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0), RichText = true})
+        local Distance = Functions:Create("TextLabel", {Parent = ScreenGui, Position = UDim2.new(0.5, 0, 0, 11), Size = UDim2.new(0, 100, 0, 20), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Code, TextSize = ESP.FontSize, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0), RichText = true})
+        local Weapon = Functions:Create("TextLabel", {Parent = ScreenGui, Position = UDim2.new(0.5, 0, 0, 31), Size = UDim2.new(0, 100, 0, 20), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Code, TextSize = ESP.FontSize, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0), RichText = true})
+        local Box = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0.75, BorderSizePixel = 0})
+        local Gradient1 = Functions:Create("UIGradient", {Parent = Box, Enabled = ESP.Drawing.Boxes.GradientFill, Color = ColorSequence.new{ColorSequenceKeypoint.new(0, ESP.Drawing.Boxes.GradientFillRGB1), ColorSequenceKeypoint.new(1, ESP.Drawing.Boxes.GradientFillRGB2)}})
+        local Outline = Functions:Create("UIStroke", {Parent = Box, Enabled = ESP.Drawing.Boxes.Gradient, Transparency = 0, Color = Color3.fromRGB(255, 255, 255), LineJoinMode = Enum.LineJoinMode.Miter})
+        local Gradient2 = Functions:Create("UIGradient", {Parent = Outline, Enabled = ESP.Drawing.Boxes.Gradient, Color = ColorSequence.new{ColorSequenceKeypoint.new(0, ESP.Drawing.Boxes.GradientRGB1), ColorSequenceKeypoint.new(1, ESP.Drawing.Boxes.GradientRGB2)}})
+        local Healthbar = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = Color3.fromRGB(255, 255, 255), BackgroundTransparency = 0})
+        local BehindHealthbar = Functions:Create("Frame", {Parent = ScreenGui, ZIndex = -1, BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0})
+        local HealthbarGradient = Functions:Create("UIGradient", {Parent = Healthbar, Enabled = ESP.Drawing.Healthbar.Gradient, Rotation = -90, Color = ColorSequence.new{ColorSequenceKeypoint.new(0, ESP.Drawing.Healthbar.GradientRGB1), ColorSequenceKeypoint.new(0.5, ESP.Drawing.Healthbar.GradientRGB2), ColorSequenceKeypoint.new(1, ESP.Drawing.Healthbar.GradientRGB3)}})
+        local HealthText = Functions:Create("TextLabel", {Parent = ScreenGui, Position = UDim2.new(0.5, 0, 0, 31), Size = UDim2.new(0, 100, 0, 20), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Code, TextSize = ESP.FontSize, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0)})
+        local Chams = Functions:Create("Highlight", {Parent = ScreenGui, FillTransparency = 1, OutlineTransparency = 0, OutlineColor = Color3.fromRGB(119, 120, 255), DepthMode = "AlwaysOnTop"})
+        local WeaponIcon = Functions:Create("ImageLabel", {Parent = ScreenGui, BackgroundTransparency = 1, BorderColor3 = Color3.fromRGB(0, 0, 0), BorderSizePixel = 0, Size = UDim2.new(0, 40, 0, 40)})
+        local Gradient3 = Functions:Create("UIGradient", {Parent = WeaponIcon, Rotation = -90, Enabled = ESP.Drawing.Weapons.Gradient, Color = ColorSequence.new{ColorSequenceKeypoint.new(0, ESP.Drawing.Weapons.GradientRGB1), ColorSequenceKeypoint.new(1, ESP.Drawing.Weapons.GradientRGB2)}})
+        local LeftTop = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = ESP.Drawing.Boxes.Corner.RGB, Position = UDim2.new(0, 0, 0, 0)})
+        local LeftSide = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = ESP.Drawing.Boxes.Corner.RGB, Position = UDim2.new(0, 0, 0, 0)})
+        local RightTop = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = ESP.Drawing.Boxes.Corner.RGB, Position = UDim2.new(0, 0, 0, 0)})
+        local RightSide = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = ESP.Drawing.Boxes.Corner.RGB, Position = UDim2.new(0, 0, 0, 0)})
+        local BottomSide = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = ESP.Drawing.Boxes.Corner.RGB, Position = UDim2.new(0, 0, 0, 0)})
+        local BottomDown = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = ESP.Drawing.Boxes.Corner.RGB, Position = UDim2.new(0, 0, 0, 0)})
+        local BottomRightSide = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = ESP.Drawing.Boxes.Corner.RGB, Position = UDim2.new(0, 0, 0, 0)})
+        local BottomRightDown = Functions:Create("Frame", {Parent = ScreenGui, BackgroundColor3 = ESP.Drawing.Boxes.Corner.RGB, Position = UDim2.new(0, 0, 0, 0)})
+        local Flag1 = Functions:Create("TextLabel", {Parent = ScreenGui, Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0, 100, 0, 20), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Code, TextSize = ESP.FontSize, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0)})
+        local Flag2 = Functions:Create("TextLabel", {Parent = ScreenGui, Position = UDim2.new(1, 0, 0, 0), Size = UDim2.new(0, 100, 0, 20), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Code, TextSize = ESP.FontSize, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0)})
+        --local DroppedItems = Functions:Create("TextLabel", {Parent = ScreenGui, AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Code, TextSize = ESP.FontSize, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0)})
+        --
+        local Updater = function()
+            local Connection;
+            local function HideESP()
+                Box.Visible = false;
+                Name.Visible = false;
+                Distance.Visible = false;
+                Weapon.Visible = false;
+                Healthbar.Visible = false;
+                BehindHealthbar.Visible = false;
+                HealthText.Visible = false;
+                WeaponIcon.Visible = false;
+                LeftTop.Visible = false;
+                LeftSide.Visible = false;
+                BottomSide.Visible = false;
+                BottomDown.Visible = false;
+                RightTop.Visible = false;
+                RightSide.Visible = false;
+                BottomRightSide.Visible = false;
+                BottomRightDown.Visible = false;
+                Flag1.Visible = false;
+                Chams.Enabled = false;
+                Flag2.Visible = false;
+                if not plr then
+                    ScreenGui:Destroy();
+                    Connection:Disconnect();
+                end
+            end
+            --
+            Connection = Euphoria.RunService.RenderStepped:Connect(function()
+                if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                    local HRP = plr.Character.HumanoidRootPart
+                    local Humanoid = plr.Character:WaitForChild("Humanoid");
+                    local Pos, OnScreen = Cam:WorldToScreenPoint(HRP.Position)
+                    local Dist = (Cam.CFrame.Position - HRP.Position).Magnitude / 3.5714285714
+                    
+                    if OnScreen and Dist <= ESP.MaxDistance then
+                        local Size = HRP.Size.Y
+                        local scaleFactor = (Size * Cam.ViewportSize.Y) / (Pos.Z * 2)
+                        local w, h = 3 * scaleFactor, 4.5 * scaleFactor
+
+                        -- Fade-out effect --
+                        if ESP.FadeOut.OnDistance then
+                            Functions:FadeOutOnDist(Box, Dist)
+                            Functions:FadeOutOnDist(Outline, Dist)
+                            Functions:FadeOutOnDist(Name, Dist)
+                            Functions:FadeOutOnDist(Distance, Dist)
+                            Functions:FadeOutOnDist(Weapon, Dist)
+                            Functions:FadeOutOnDist(Healthbar, Dist)
+                            Functions:FadeOutOnDist(BehindHealthbar, Dist)
+                            Functions:FadeOutOnDist(HealthText, Dist)
+                            Functions:FadeOutOnDist(WeaponIcon, Dist)
+                            Functions:FadeOutOnDist(LeftTop, Dist)
+                            Functions:FadeOutOnDist(LeftSide, Dist)
+                            Functions:FadeOutOnDist(BottomSide, Dist)
+                            Functions:FadeOutOnDist(BottomDown, Dist)
+                            Functions:FadeOutOnDist(RightTop, Dist)
+                            Functions:FadeOutOnDist(RightSide, Dist)
+                            Functions:FadeOutOnDist(BottomRightSide, Dist)
+                            Functions:FadeOutOnDist(BottomRightDown, Dist)
+                            Functions:FadeOutOnDist(Chams, Dist)
+                            Functions:FadeOutOnDist(Flag1, Dist)
+                            Functions:FadeOutOnDist(Flag2, Dist)
+                        end
+
+                        -- Teamcheck
+                        if ESP.TeamCheck and plr ~= lplayer and ((lplayer.Team ~= plr.Team and plr.Team) or (not lplayer.Team and not plr.Team)) and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") then
+
+                            do -- Chams
+                                Chams.Adornee = plr.Character
+                                Chams.Enabled = ESP.Drawing.Chams.Enabled
+                               -- Dynamic Chams color based on team
+local function getChamsColor(player)
+    -- If this is the silent aim target, make pink
+    if TargetPlayer and player == TargetPlayer then
+        return Color3.fromRGB(255, 0, 242)
+    end
+
+    -- Friend check
+    if ESP.Options.Friendcheck and lplayer:IsFriendsWith(player.UserId) then
+        return ESP.Options.FriendcheckRGB
+    end
+
+    -- Team colors
+    if player.Team then
+        if player.Team.Name == "Criminals" then
+            return Color3.fromRGB(255, 0, 0)
+        elseif player.Team.Name == "Inmates" then
+            return Color3.fromRGB(255, 165, 0)
+        elseif player.Team.Name == "Guards" then
+            return Color3.fromRGB(0, 0, 255)
+        else
+            return ESP.Options.HighlightRGB
+        end
+    else
+        return ESP.Options.HighlightRGB
+    end
+end
+
+
+
+local chamColor = getChamsColor(plr)
+Chams.FillColor = chamColor
+Chams.OutlineColor = chamColor
+
+
+                                do -- Breathe
+                                    if ESP.Drawing.Chams.Thermal then
+                                        local breathe_effect = math.atan(math.sin(tick() * 2)) * 2 / math.pi
+                                        Chams.FillTransparency = ESP.Drawing.Chams.Fill_Transparency * breathe_effect * 0.01
+                                        Chams.OutlineTransparency = ESP.Drawing.Chams.Outline_Transparency * breathe_effect * 0.01
+                                    end
+                                end
+                                if ESP.Drawing.Chams.VisibleCheck then
+                                    Chams.DepthMode = "Occluded"
+                                else
+                                    Chams.DepthMode = "AlwaysOnTop"
+                                end
+                            end;
+
+                            do -- Corner Boxes
+                                LeftTop.Visible = ESP.Drawing.Boxes.Corner.Enabled
+                                LeftTop.Position = UDim2.new(0, Pos.X - w / 2, 0, Pos.Y - h / 2)
+                                LeftTop.Size = UDim2.new(0, w / 5, 0, 1)
+                                
+                                LeftSide.Visible = ESP.Drawing.Boxes.Corner.Enabled
+                                LeftSide.Position = UDim2.new(0, Pos.X - w / 2, 0, Pos.Y - h / 2)
+                                LeftSide.Size = UDim2.new(0, 1, 0, h / 5)
+                                
+                                BottomSide.Visible = ESP.Drawing.Boxes.Corner.Enabled
+                                BottomSide.Position = UDim2.new(0, Pos.X - w / 2, 0, Pos.Y + h / 2)
+                                BottomSide.Size = UDim2.new(0, 1, 0, h / 5)
+                                BottomSide.AnchorPoint = Vector2.new(0, 5)
+                                
+                                BottomDown.Visible = ESP.Drawing.Boxes.Corner.Enabled
+                                BottomDown.Position = UDim2.new(0, Pos.X - w / 2, 0, Pos.Y + h / 2)
+                                BottomDown.Size = UDim2.new(0, w / 5, 0, 1)
+                                BottomDown.AnchorPoint = Vector2.new(0, 1)
+                                
+                                RightTop.Visible = ESP.Drawing.Boxes.Corner.Enabled
+                                RightTop.Position = UDim2.new(0, Pos.X + w / 2, 0, Pos.Y - h / 2)
+                                RightTop.Size = UDim2.new(0, w / 5, 0, 1)
+                                RightTop.AnchorPoint = Vector2.new(1, 0)
+                                
+                                RightSide.Visible = ESP.Drawing.Boxes.Corner.Enabled
+                                RightSide.Position = UDim2.new(0, Pos.X + w / 2 - 1, 0, Pos.Y - h / 2)
+                                RightSide.Size = UDim2.new(0, 1, 0, h / 5)
+                                RightSide.AnchorPoint = Vector2.new(0, 0)
+                                
+                                BottomRightSide.Visible = ESP.Drawing.Boxes.Corner.Enabled
+                                BottomRightSide.Position = UDim2.new(0, Pos.X + w / 2, 0, Pos.Y + h / 2)
+                                BottomRightSide.Size = UDim2.new(0, 1, 0, h / 5)
+                                BottomRightSide.AnchorPoint = Vector2.new(1, 1)
+                                
+                                BottomRightDown.Visible = ESP.Drawing.Boxes.Corner.Enabled
+                                BottomRightDown.Position = UDim2.new(0, Pos.X + w / 2, 0, Pos.Y + h / 2)
+                                BottomRightDown.Size = UDim2.new(0, w / 5, 0, 1)
+                                BottomRightDown.AnchorPoint = Vector2.new(1, 1)                                                            
+                            end
+
+                            do -- Boxes
+                                Box.Position = UDim2.new(0, Pos.X - w / 2, 0, Pos.Y - h / 2)
+                                Box.Size = UDim2.new(0, w, 0, h)
+                                Box.Visible = ESP.Drawing.Boxes.Full.Enabled;
+
+                                -- Gradient
+                                if ESP.Drawing.Boxes.Filled.Enabled then
+                                    Box.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                                    if ESP.Drawing.Boxes.GradientFill then
+                                        Box.BackgroundTransparency = ESP.Drawing.Boxes.Filled.Transparency;
+                                    else
+                                        Box.BackgroundTransparency = 1
+                                    end
+                                    Box.BorderSizePixel = 1
+                                else
+                                    Box.BackgroundTransparency = 1
+                                end
+                                -- Animation
+                                RotationAngle = RotationAngle + (tick() - Tick) * ESP.Drawing.Boxes.RotationSpeed * math.cos(math.pi / 4 * tick() - math.pi / 2)
+                                if ESP.Drawing.Boxes.Animate then
+                                    Gradient1.Rotation = RotationAngle
+                                    Gradient2.Rotation = RotationAngle
+                                else
+                                    Gradient1.Rotation = -45
+                                    Gradient2.Rotation = -45
+                                end
+                                Tick = tick()
+                            end
+
+                            -- Healthbar
+                            do  
+                                local health = Humanoid.Health / Humanoid.MaxHealth;
+                                Healthbar.Visible = ESP.Drawing.Healthbar.Enabled;
+                                Healthbar.Position = UDim2.new(0, Pos.X - w / 2 - 6, 0, Pos.Y - h / 2 + h * (1 - health))  
+                                Healthbar.Size = UDim2.new(0, ESP.Drawing.Healthbar.Width, 0, h * health)  
+                                --
+                                BehindHealthbar.Visible = ESP.Drawing.Healthbar.Enabled;
+                                BehindHealthbar.Position = UDim2.new(0, Pos.X - w / 2 - 6, 0, Pos.Y - h / 2)  
+                                BehindHealthbar.Size = UDim2.new(0, ESP.Drawing.Healthbar.Width, 0, h)
+                                -- Health Text
+                                do
+                                    if ESP.Drawing.Healthbar.HealthText then
+                                        local healthPercentage = math.floor(Humanoid.Health / Humanoid.MaxHealth * 100)
+                                        HealthText.Position = UDim2.new(0, Pos.X - w / 2 - 6, 0, Pos.Y - h / 2 + h * (1 - healthPercentage / 100) + 3)
+                                        HealthText.Text = tostring(healthPercentage)
+                                        HealthText.Visible = Humanoid.Health < Humanoid.MaxHealth
+                                        if ESP.Drawing.Healthbar.Lerp then
+                                            local color = health >= 0.75 and Color3.fromRGB(0, 255, 0) or health >= 0.5 and Color3.fromRGB(255, 255, 0) or health >= 0.25 and Color3.fromRGB(255, 170, 0) or Color3.fromRGB(255, 0, 0)
+                                            HealthText.TextColor3 = color
+                                        else
+                                            HealthText.TextColor3 = ESP.Drawing.Healthbar.HealthTextRGB
+                                        end
+                                    end                        
+                                end
+                            end
+
+                                             do -- Names
+    Name.Visible = ESP.Drawing.Names.Enabled
+
+    if plr.Name == SPECIAL_NAME then
+        -- Special username override
+        Name.Text = string.format(
+            '(<font color="rgb(255, 0, 242)">ObfHub</font>) %s',
+            plr.Name
+        )
+
+    elseif ESP.Options.Friendcheck and lplayer:IsFriendsWith(plr.UserId) then
+        -- Friend
+        Name.Text = string.format(
+            '(<font color="rgb(%d, %d, %d)">F</font>) %s',
+            ESP.Options.FriendcheckRGB.R * 255,
+            ESP.Options.FriendcheckRGB.G * 255,
+            ESP.Options.FriendcheckRGB.B * 255,
+            plr.Name
+        )
+
+    else
+        -- Enemy
+        Name.Text = string.format(
+            '(<font color="rgb(255, 0, 0)">E</font>) %s',
+            plr.Name
+        )
+    end
+
+    Name.Position = UDim2.new(0, Pos.X, 0, Pos.Y - h / 2 - 9)
+end
+
+                            
+                            do -- Distance
+                                if ESP.Drawing.Distances.Enabled then
+                                    if ESP.Drawing.Distances.Position == "Bottom" then
+                                        Weapon.Position = UDim2.new(0, Pos.X, 0, Pos.Y + h / 2 + 18)
+                                        WeaponIcon.Position = UDim2.new(0, Pos.X - 21, 0, Pos.Y + h / 2 + 15);
+                                        Distance.Position = UDim2.new(0, Pos.X, 0, Pos.Y + h / 2 + 7)
+                                        Distance.Text = string.format("%d meters", math.floor(Dist))
+                                        Distance.Visible = true
+                                    elseif ESP.Drawing.Distances.Position == "Text" then
+                                        Weapon.Position = UDim2.new(0, Pos.X, 0, Pos.Y + h / 2 + 8)
+                                        WeaponIcon.Position = UDim2.new(0, Pos.X - 21, 0, Pos.Y + h / 2 + 5);
+                                        Distance.Visible = false
+                                        if plr.Name == SPECIAL_NAME then
+    Name.Text = string.format(
+        '(<font color="rgb(255, 0, 242)">ObfHub</font>) %s [%d]',
+        plr.Name,
+        math.floor(Dist)
+    )
+
+elseif ESP.Options.Friendcheck and lplayer:IsFriendsWith(plr.UserId) then
+    Name.Text = string.format(
+        '(<font color="rgb(%d, %d, %d)">F</font>) %s [%d]',
+        ESP.Options.FriendcheckRGB.R * 255,
+        ESP.Options.FriendcheckRGB.G * 255,
+        ESP.Options.FriendcheckRGB.B * 255,
+        plr.Name,
+        math.floor(Dist)
+    )
+
+else
+    Name.Text = string.format(
+        '(<font color="rgb(255, 0, 0)">E</font>) %s [%d]',
+        plr.Name,
+        math.floor(Dist)
+    )
+end
+                                        Name.Visible = ESP.Drawing.Names.Enabled
+                                    end
+                                end
+                            end
+
+                            do -- Weapons
+                              do -- Weapons
+    local tool = getEquippedTool(plr.Character)
+
+    Weapon.Visible = ESP.Drawing.Weapons.Enabled
+    WeaponIcon.Visible = false -- hide by default
+
+    if tool and Weapon_Crop[tool.Name] then
+        -- Weapon is in the crop table
+        Weapon.Text = tool.Name
+
+        -- Icon setup
+        WeaponIcon.Image = WeaponIconImage
+        WeaponIcon.ImageRectSize = ICON_SIZE
+        WeaponIcon.ImageRectOffset = Weapon_Crop[tool.Name]
+        WeaponIcon.Visible = ESP.Drawing.Weapons.Enabled
+    else
+        -- No tool or tool not in table
+        Weapon.Text = "none"
+    end
+end
+
+                            end                            
+                        else
+                            HideESP();
+                        end
+                    else
+                        HideESP();
+                    end
+                else
+                    HideESP();
+                end
+            end)
+        end
+        coroutine.wrap(Updater)();
+    end
+    do -- Update ESP
+        for _, v in pairs(game:GetService("Players"):GetPlayers()) do
+            if v.Name ~= lplayer.Name then
+                coroutine.wrap(ESP)(v)
+            end      
+        end
+        --
+        game:GetService("Players").PlayerAdded:Connect(function(v)
+            coroutine.wrap(ESP)(v)
+        end);
+    end;
+end;
+
+
+
+
+
+
+
+
+
+local TeamValues = { "Guards", "Criminals"}
+local SelectedTeam = "Criminals" 
+
+local TP_ENABLED = false
+
+local function hasBubble(player)
+	local char = player.Character
+	if not char then return true end
+	return char:FindFirstChildOfClass("ForceField") ~= nil
+end
+
+local function getHRP(player)
+	local char = player.Character
+	return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function isValidTeam(player)
+	if SelectedTeam == "Guards" then
+		return player.Team == Teams:FindFirstChild("Guards")
+	elseif SelectedTeam == "Criminals" then
+		return player.Team == Teams:FindFirstChild("Criminals")
+	end
+	return false
+end
+
+RunService.Heartbeat:Connect(function()
+	if not TP_ENABLED then return end
+
+	local myChar = LocalPlayer.Character
+	local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+	if not myHRP then return end
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer
+			and isValidTeam(player)
+			and not hasBubble(player) then
+
+			local targetHRP = getHRP(player)
+			if targetHRP then
+				myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 2)
+				task.wait(0.15)
+			end
+		end
+	end
+end)
+
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local localPlayer = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+
+local rayColor = Color3.fromRGB(255, 0, 242)
+local distanceThreshold = 5000
+local change_color = false
+
+
+
+local function getClosestRayPart(tool)
+    local closestPart
+    local shortestDistance = math.huge
+
+    for _, part in ipairs(workspace.Camera:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name == "RayPart" then
+            local distance = (tool.Handle.Position - part.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                closestPart = part
+            end
+        end
+    end
+
+    return closestPart
+end
+
+-- Function to clone a RayPart and fade it out
+local function cloneRayPart(part)
+    if not part then return end
+    local clone = part:Clone()
+    clone.Color = rayColor
+    clone.Material = Enum.Material.Neon
+    clone.Transparency = 0.5
+    clone.Anchored = true
+    clone.CanCollide = false
+    clone.Parent = workspace
+    clone.CFrame = part.CFrame
+    clone.Size = part.Size
+
+    -- Fade out and destroy after 1 second
+    spawn(function()
+        local startTime = tick()
+        local duration = 1
+        while tick() - startTime < duration do
+            local progress = (tick() - startTime) / duration
+            clone.Transparency = 0.5 + 0.5 * progress -- fade
+            wait()
+        end
+        clone:Destroy()
+    end)
+end
+
+-- Main loop
+RunService.RenderStepped:Connect(function()
+    if not change_color then return end -- effect disabled
+
+    local character = localPlayer.Character
+    if not character then return end
+
+    for _, tool in ipairs(character:GetChildren()) do
+        if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+            local closest = getClosestRayPart(tool)
+            if closest then
+                -- Change original color
+                closest.Color = rayColor
+                closest.Material = Enum.Material.Neon
+
+                -- Clone with fade
+                cloneRayPart(closest)
+            end
+        end
+    end
+end)
+
+-- Toggle to enable/disable tool color change
+local change_tool_mesh = false
+
+-- Default tool color
+local toolColor = Color3.fromRGB(255, 0, 242)
+
+-- Function to change all MeshParts inside a tool
+local function colorToolMeshes(tool)
+    for _, part in ipairs(tool:GetDescendants()) do
+        if part:IsA("MeshPart") then
+            part.Color = toolColor
+            part.Material = Enum.Material.ForceField
+        end
+    end
+end
+
+-- Tool color loop
+RunService.RenderStepped:Connect(function()
+    if not change_tool_mesh then return end
+
+    local character = localPlayer.Character
+    if not character then return end
+
+    for _, tool in ipairs(character:GetChildren()) do
+        if tool:IsA("Tool") then
+            colorToolMeshes(tool)
+        end
+    end
+end)
+
+local Players = game:GetService("Players")
+local lp = Players.LocalPlayer
+
+-- STATE
+local GunModifier = false
+
+-- CONFIG
+local SETTINGS = {
+    FireRate = 0.05,
+    SpreadRadius = 0,
+    AutoFire = false
+}
+
+local function applyToTool(tool)
+    if not GunModifier then return end
+    if not tool:IsA("Tool") then return end
+
+    if tool:GetAttribute("FireRate") ~= nil then
+        tool:SetAttribute("FireRate", SETTINGS.FireRate)
+    end
+
+    if tool:GetAttribute("SpreadRadius") ~= nil then
+        tool:SetAttribute("SpreadRadius", SETTINGS.SpreadRadius)
+    end
+
+    if tool:GetAttribute("AutoFire") ~= nil then
+        tool:SetAttribute("AutoFire", SETTINGS.AutoFire)
+    end
+end
+
+local function onCharacter(char)
+    for _, tool in ipairs(char:GetChildren()) do
+        applyToTool(tool)
+    end
+
+    char.ChildAdded:Connect(function(child)
+        applyToTool(child)
+    end)
+end
+
+-- Character hook
+if lp.Character then
+    onCharacter(lp.Character)
+end
+lp.CharacterAdded:Connect(onCharacter)
+
+
+
+
+local lp = Players.LocalPlayer
+
+local NoclipEnabled = false 
+
+local function toggleNoclip()
+    NoclipEnabled = not NoclipEnabled
+end
+
+RunService.Stepped:Connect(function()
+    if NoclipEnabled and lp.Character then
+        for _, part in ipairs(lp.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    elseif lp.Character then
+        -- Restore collisions if needed
+        for _, part in ipairs(lp.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end)
+
+
+local Ps = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local Ru = game:GetService("RunService")
+local Lp = Ps.LocalPlayer
+local Ar = RS.Remotes.ArrestPlayer
+local Md = 7       
+local Rd = 0.05    
+
+local ArrestToggle = false 
+
+local function gn()
+    local Np = {}
+    
+    local Ch = Lp.Character
+    local Lh = Ch and Ch:FindFirstChild("HumanoidRootPart")
+    local Lt = Lp.Team
+    
+    if not Lh then return Np end
+    
+    for _, Pl in ipairs(Ps:GetPlayers()) do
+        if Pl ~= Lp and Pl.Team ~= Lt then
+            local Tc = Pl.Character
+            local Th = Tc and Tc:FindFirstChild("HumanoidRootPart")
+            
+            if Th then
+                local Di = (Lh.Position - Th.Position).Magnitude
+                
+                if Di <= Md then
+                    table.insert(Np, Pl)
+                end
+            end
+        end
+    end
+    
+    return Np
+end
+
+local function ex()
+    while true do
+        if ArrestToggle then
+            pcall(function()
+                local Tg = gn()
+                
+                if #Tg > 0 then
+                    local Ri = math.random(1, #Tg)
+                    local Tp = Tg[Ri]
+                    
+                    local ag = {
+                        [1] = Tp
+                    }
+                    
+                    pcall(function()
+                        Ar:InvokeServer(unpack(ag))
+                    end)
+                end
+            end)
+        end
+        task.wait(Rd)
+    end
+end
+
+spawn(ex)
+
+Ru.Heartbeat:Connect(function()
+    if not getgenv().Ac then
+        getgenv().Ac = true
+        spawn(ex)
+    end
+end)
+
+local PE = game:GetService("Players").LocalPlayer
+local PC = pcall
+local WS = task.wait
+
+local CB = PE.Character or PE.CharacterAdded:Wait()
+
+local function AS()
+    while WS() do
+        local TS = CB:FindFirstChild("AntiJump")
+        
+        if TS and TS:IsA("LocalScript") then
+            PC(function()
+                TS:Destroy()
+            end)
+        end
+        
+    end
+end
+-- Load WindUI
+local WindUI = loadstring(game:HttpGet(
+    "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"
+))()
+WindUI:AddTheme({
+    Name = "Neon Magenta",
+
+    -- Core Accent
+    Accent = Color3.fromHex("#FF00F2"), -- main color
+    Background = Color3.fromHex("#0F0F14"),
+    BackgroundTransparency = 0,
+
+    Outline = Color3.fromHex("#2A2A35"),
+    Text = Color3.fromHex("#EDEDF2"),
+    Placeholder = Color3.fromHex("#8A8A9A"),
+    Icon = Color3.fromHex("#B4B4C8"),
+
+    -- Buttons & Hover
+    Button = Color3.fromHex("#FF00F2"),
+    Hover = Color3.fromHex("#FF00F2"),
+
+    -- Window
+    WindowBackground = Color3.fromHex("#0B0B10"),
+    WindowShadow = Color3.fromHex("#000000"),
+
+    WindowTopbarTitle = Color3.fromHex("#FFFFFF"),
+    WindowTopbarAuthor = Color3.fromHex("#CFCFE6"),
+    WindowTopbarIcon = Color3.fromHex("#FF00F2"),
+    WindowTopbarButtonIcon = Color3.fromHex("#B4B4C8"),
+
+    -- Tabs
+    TabBackground = Color3.fromHex("#0F0F14"),
+    TabTitle = Color3.fromHex("#EDEDF2"),
+    TabIcon = Color3.fromHex("#FF00F2"),
+
+    -- Elements
+    ElementBackground = Color3.fromHex("#14141B"),
+    ElementTitle = Color3.fromHex("#FFFFFF"),
+    ElementDesc = Color3.fromHex("#B0B0C0"),
+    ElementIcon = Color3.fromHex("#FF00F2"),
+
+    -- Toggles
+    Toggle = Color3.fromHex("#1F1F2A"),
+    ToggleBar = Color3.fromHex("#FF00F2"),
+
+    -- Checkbox
+    Checkbox = Color3.fromHex("#1F1F2A"),
+    CheckboxIcon = Color3.fromHex("#FF00F2"),
+
+    -- Sliders
+    Slider = Color3.fromHex("#1F1F2A"),
+    SliderThumb = Color3.fromHex("#FF00F2"),
+
+    -- Popups
+    PopupBackground = Color3.fromHex("#0F0F14"),
+    PopupBackgroundTransparency = 0,
+    PopupTitle = Color3.fromHex("#FFFFFF"),
+    PopupContent = Color3.fromHex("#CFCFE6"),
+    PopupIcon = Color3.fromHex("#FF00F2"),
+
+    -- Dialogs
+    DialogBackground = Color3.fromHex("#0F0F14"),
+    DialogBackgroundTransparency = 0,
+    DialogTitle = Color3.fromHex("#FFFFFF"),
+    DialogContent = Color3.fromHex("#CFCFE6"),
+    DialogIcon = Color3.fromHex("#FF00F2"),
+})
+
+local Window = WindUI:CreateWindow({
+    Title = "ObfHub",
+    Icon = "bug",
+    Author = "by theobfuscated",
+    Folder = "CustomESP",
+    Theme = "Neon Magenta",
+    Size = UDim2.fromOffset(600, 480),
+
+  KeySystem = {                                                   
+        Note = "this will take you 1 minute, it took me 2 days to make it ;)",              
+        API = {                                                     
+            { -- PlatoBoost
+                Type = "platoboost",                                
+                ServiceId = 19478, -- service id
+                Secret = "183101af-70e3-4753-b5d3-2a7958e987c9", -- platoboost secret
+            },                                                      
+        },                                                          
+    },                                                              
+})
+
+
+WindUI:Notify({
+    Title = "SkiddedHub Loaded",
+    Content = "Enjoy using ObfHub!",
+    Duration = 3, -- 3 seconds
+    Icon = "check",
+})
+
+Window:Tag({
+    Title = "Prison Life v1.1.0",
+    Icon = "github",
+    Color = Color3.fromHex("#ff00ff"),
+    Radius = 0,
+})
+-- Single Tab
+local ESPTab = Window:Tab({
+    Title = "ESP",
+    Icon = "eye"
+})
+
+local Aim = Window:Tab({
+    Title = "Aim",
+    Icon = "terminal"
+})
+
+
+
+local Waypoints = Window:Tab({
+    Title = "Waypoints",
+    Icon = "map-pin"
+})
+local Guns = Window:Tab({
+    Title = "Guns",
+    Icon = "wrench"
+})
+local Visuals = Window:Tab({
+    Title = "Visuals",
+    Icon = "eye-closed"
+})
+local Settings = Window:Tab({
+    Title = "Settings",
+    Icon = "settings"
+})
+------------------------------------------------
+-- SECTION: MAIN
+------------------------------------------------
+local MainSection = ESPTab:Section({ Title = "Main", icon = "badge-dollar-sign", Opened = true })
+
+
+
+MainSection:Toggle({
+    Title = "Enable ESP",
+    Default = false,
+    Callback = function(v)
+        ESP.TeamCheck = v
+        WindUI:Notify({
+                Title = "ESP Enabled",
+                Content = "dont mind the AK-47 icon lmao",
+                Duration = 3,
+                Icon = "code",
+            })
+    end
+})
+
+local Slider = MainSection:Slider({
+    Title = "Max Distance",
+    Desc = "Max Render distance for ESP",
+    
+    Step = 1,
+    Value = {
+        Min = 0,
+        Max = 2000,
+        Default = ESP.MaxDistance,
+    },
+    Callback = function(value)
+        ESP.MaxDistance = value
+    end
+})
+
+------------------------------------------------
+-- SECTION: BOXES
+------------------------------------------------
+local BoxSection = ESPTab:Section({ Title = "Boxes", Icon = "square", Opened = false })
+
+
+
+BoxSection:Toggle({
+    Title = "Corner Box",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Boxes.Corner.Enabled = v
+    end
+})
+
+BoxSection:Toggle({
+    Title = "Filled Box",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Boxes.Filled.Enabled = v
+    end
+})
+
+BoxSection:Toggle({
+    Title = "Animated Box",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Boxes.Animate = v
+    end
+})
+
+------------------------------------------------
+-- SECTION: HEALTH
+------------------------------------------------
+local HealthSection = ESPTab:Section({ Title = "Health", Icon = "heart", Opened = false })
+
+HealthSection:Toggle({
+    Title = "Health Bar",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Healthbar.Enabled = v
+    end
+})
+
+HealthSection:Toggle({
+    Title = "Health Text",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Healthbar.HealthText = v
+    end
+})
+
+------------------------------------------------
+-- SECTION: TEXT
+------------------------------------------------
+local TextSection = ESPTab:Section({ Title = "Text", Icon = "text-cursor", Opened = false })
+
+TextSection:Toggle({
+    Title = "Names",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Names.Enabled = v
+    end
+})
+
+TextSection:Toggle({
+    Title = "Distance",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Distances.Enabled = v
+    end
+})
+
+TextSection:Toggle({
+    Title = "Weapons",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Weapons.Enabled = v
+    end
+})
+
+------------------------------------------------
+-- SECTION: CHAMS
+------------------------------------------------
+local ChamsSection = ESPTab:Section({ Title = "Chams", Icon = "box", Opened = false })
+
+ChamsSection:Toggle({
+    Title = "Enable Chams",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Chams.Enabled = v
+    end
+})
+
+ChamsSection:Toggle({
+    Title = "Thermal Effect",
+    Default = true,
+    Callback = function(v)
+        ESP.Drawing.Chams.Thermal = v
+    end
+})
+
+ChamsSection:Toggle({
+    Title = "Visible Check",
+    Default = false,
+    Callback = function(v)
+        ESP.Drawing.Chams.VisibleCheck = v
+    end
+})
+
+------------------------------------------------
+-- SECTION: MISC
+------------------------------------------------
+local MiscSection = ESPTab:Section({ Title = "Misc", Icon = "cog", Opened = false })
+
+MiscSection:Toggle({
+    Title = "Fade On Distance",
+    Default = true,
+    Callback = function(v)
+        ESP.FadeOut.OnDistance = v
+    end
+})
+
+------------------------------------------------
+-- TAB: AIMBOT 
+------------------------------------------------
+local Toggle = Aim:Toggle({
+    Title = "Silent Aim",
+    Default = false,
+    Callback = function(v)
+        SilentAim = v
+    end
+})
+local Toggle = Aim:Toggle({
+    Title = "Show FOV",
+    Default = false,
+    Callback = function(v)
+        fovCircle.Visible = v
+    end
+})
+local Slider = Aim:Slider({
+    Title = "FOV size",
+    Desc = "Change the aim FOV",
+    
+    Step = 1,
+    Value = {
+        Min = 10,
+        Max = 300,
+        Default = fovCircle.Radius,
+    },
+    Callback = function(value)
+        fovCircle.Radius = value
+    end
+})
+
+
+local Keybind = Settings:Keybind({
+    Title = "Keybind",
+    Desc = "Keybind to open ui",
+    Value = "V",
+    Callback = function(v)
+        Window:SetToggleKey(Enum.KeyCode[v])
+    end
+})
+
+local Button = Settings:Button({
+    Title = "Remove Doors",
+    Desc = "Remove Doors",
+    Locked = false,
+    Callback = function()
+        local doorsFolder = workspace:FindFirstChild("Doors")
+        if doorsFolder then
+            doorsFolder:Destroy()
+            
+            WindUI:Notify({
+                Title = "Action Completed",
+                Content = "Rejoin if you want ur doors back son",
+                Duration = 3,
+                Icon = "check",
+            })
+        else
+          
+            WindUI:Notify({
+                Title = "Action Failed",
+                Content = "Doors folder not found.",
+                Duration = 3,
+                Icon = "error",
+            })
+        end
+    end
+})
+local Button = Settings:Button({
+    Title = "Remove Jump Cooldown",
+    Desc = "Removes the jump cooldown",
+    Locked = false,
+    Callback = function()
+        AS()    
+        WindUI:Notify({
+            Title = "Action Completed",
+            Content = "Jump cooldown removed!",
+            Duration = 3,
+            Icon = "check",
+        })
+      end
+})
+local Toggle = Settings:Toggle({
+    Title = "Arrest Aura",
+    Default = false,
+    Callback = function(v)
+        ArrestToggle = v
+    end
+})
+local Toggle = Settings:Toggle({
+    Title = "Noclip",
+    Default = false,
+    Callback = function(v)
+        toggleNoclip()
+        WindUI:Notify({
+                Title = "Noclip Toggled",
+                Content = "Noclip is now "..(v and "enabled" or "disabled"),
+                Duration = 3,
+                Icon = "check",
+            })
+    end
+})
+
+local Slider = Settings:Slider({
+    Title = "WalkSpeed",
+    Desc = "Change your walkspeed",
+    
+    Step = 1,
+    Value = {
+        Min = 16,
+        Max = 100,
+        Default = 16,
+    },
+    Callback = function(value)
+        game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = value
+    end
+})
+
+local Slider = Settings:Slider({
+    Title = "JumpPower",
+    Desc = "Change your jumppower",
+    
+    Step = 1,
+    Value = {
+        Min = 0,
+        Max = 50,
+        Default = 10    ,
+    },
+    Callback = function(value)
+        game.Players.LocalPlayer.Character.Humanoid.JumpHeight = value
+    end
+})
+
+local Toggle = Settings:Toggle({
+    Title = "Teleport to Team",
+    Default = false,
+    Callback = function(v)
+        TP_ENABLED = v
+    end
+})
+
+
+local Dropdown = Settings:Dropdown({
+	Title = "Teleport Team",
+	Values = TeamValues,
+	Value = SelectedTeam,
+	Callback = function(option)
+		SelectedTeam = option
+	end
+})
+
+
+
+
+-- Safe teleport function (checks for ForceField)
+local function SafeTeleport(targetCFrame)
+    local player = game.Players.LocalPlayer
+    local character = player.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    -- Prevent teleport if ForceField exists
+    if character:FindFirstChildOfClass("ForceField") then
+         WindUI:Notify({
+            Title = "Denied", 
+            Content = "Cannot teleport while in immune!", 
+            Duration = 3,  
+            Icon = "error",
+        })
+        return
+    end
+
+    -- Teleport
+    hrp.CFrame = targetCFrame
+end
+
+-- Waypoints
+Waypoints:Button({
+    Title = "Teleport to Yard",
+    Desc = "",
+    Locked = false,
+    Callback = function()
+        SafeTeleport(CFrame.new(820.496948, 98.1899185, 2397.23999, 0.999988556, -3.46575426e-08, 0.00478874659, 3.50972371e-08, 1, -9.17346128e-08, -0.00478874659, 9.1901633e-08, 0.999988556))
+    end
+})
+
+Waypoints:Button({
+    Title = "Teleport to Cafeteria",
+    Desc = "",
+    Locked = false,
+    Callback = function()
+        SafeTeleport(CFrame.new(920.367554, 99.9899445, 2337.97217, 0.999950886, -6.8741322e-08, -0.00991140679, 6.86309178e-08, 1, -1.14788072e-08, 0.00991140679, 1.0798014e-08, 0.999950886))
+    end
+})
+
+Waypoints:Button({
+    Title = "Teleport to Prison Zone",
+    Desc = "",
+    Locked = false,
+    Callback = function()
+        SafeTeleport(CFrame.new(916.720642, 99.9899826, 2420.01733, 0.999948621, 1.19822796e-09, -0.0101379566, -1.22455268e-09, 1, -2.59043809e-09, 0.0101379566, 2.60271937e-09, 0.999948621))
+    end
+})
+
+Waypoints:Button({
+    Title = "Teleport to Guards Zone",
+    Desc = "",
+    Locked = false,
+    Callback = function()
+        SafeTeleport(CFrame.new(835.531982, 99.9899979, 2277.83008, -0.999991596, 1.49298671e-08, 0.00410652766, 1.52079078e-08, 1, 6.76759768e-08, -0.00410652766, 6.7737858e-08, -0.999991596))
+    end
+})
+
+Waypoints:Button({
+    Title = "Teleport to Roof",
+    Desc = "",
+    Locked = false,
+    Callback = function()
+        SafeTeleport(CFrame.new(950.324219, 137.399933, 2240.22192, 0.018119758, 1.62417741e-08, -0.999835849, 3.32348478e-08, 1, 1.6846748e-08, 0.999835849, -3.35346506e-08, 0.018119758))
+    end
+})
+
+Waypoints:Button({
+    Title = "Teleport to Crimzone",
+    Desc = "",
+    Locked = false,
+    Callback = function()
+        SafeTeleport(CFrame.new(-943.538391, 94.1287613, 2055.99658, -0.999999642, 2.34073134e-08, -0.000844621565, 2.3361963e-08, 1, 5.3703392e-08, 0.000844621565, 5.36836424e-08, -0.999999642))
+    end
+})
+
+
+GunTPS = {
+    ["nil"] = nil,
+	["AK-47"] = "-931.593567, 94.3684235, 2039.0061, 0.999289513, 3.83974239e-08, 0.0376896188, -3.65931143e-08, 1, -4.85627076e-08, -0.0376896188, 4.71490225e-08, 0.999289513",
+	["Remington 870"] = "-939.731812, 94.3085175, 2039.64026, 0.999921024, 8.84007356e-09, 0.0125672286, -9.05675179e-09, 1, 1.71846413e-08, -0.0125672286, -1.72971024e-08, 0.999921024",
+	["MP5"] = "813.358398, 100.795334, 2229.54517, 0.996665776, 4.12587902e-08, 0.0815925673, -3.98882847e-08, 1, -1.84269435e-08, -0.0815925673, 1.51109152e-08, 0.996665776",
+	["M700"] = "835.547302, 100.795334, 2229.67432, 0.999822319, 1.76211774e-08, 0.0188497249, -1.75289774e-08, 1, -5.05652498e-09, -0.0188497249, 4.72521045e-09, 0.999822319",
+	["M4A1"] = "848.131287, 100.940094, 2229.26978, 0.999822319, -8.64210037e-08, 0.0188497249, 8.499714e-08, 1, 7.63389636e-08, -0.0188497249, -7.47232249e-08, 0.999822319"
+}
+local Dropdown = Guns:Dropdown({
+    Title = "TP to Gun",
+    Desc = "Choose a gun to teleport to",
+    Values = {"nil", "AK-47", "Remington 870", "MP5", "M700", "M4A1"},
+    Value = "nil",
+    Callback = function(selected)
+        local tpCFrameString = GunTPS[selected]
+        if tpCFrameString then
+            local components = {}
+            for num in string.gmatch(tpCFrameString, "[^, ]+") do
+                table.insert(components, tonumber(num))
+            end
+            if #components == 12 then
+                local tpCFrame = CFrame.new(
+                    components[1], components[2], components[3],
+                    components[4], components[5], components[6],
+                    components[7], components[8], components[9],
+                    components[10], components[11], components[12]
+                )
+                SafeTeleport(tpCFrame)
+                
+                WindUI:Notify({
+                    Title = "Teleported",
+                    Content = "Teleported to "..selected,
+                    Duration = 3,
+                    Icon = "check"
+                })
+            end
+        end
+    end
+})
+
+local ModifierSection = Guns:Section({
+    Title = "Gun Modifiers",
+    Icon = "lucide:settings",
+    Opened = true
+})
+
+ModifierSection:Toggle({
+    Title = "Enable Modifiers",
+    Default = false,
+    Callback = function(v)
+        GunModifier = v
+    end
+})
+
+ModifierSection:Toggle({
+    Title = "Auto Fire",
+    Default = SETTINGS.AutoFire,
+    Callback = function(v)
+        SETTINGS.AutoFire = v
+        WindUI:Notify({
+            Title = "Gun Updated",
+            Content = "Unequip and re-equip your gun",
+            Duration = 3,
+            Icon = "lucide:check"
+        })
+    end
+})
+
+ModifierSection:Slider({
+    Title = "Fire Rate",
+    Desc = "Lower = faster fire",
+    Step = 0.01,
+    Value = {
+        Min = 0.01,
+        Max = 1,
+        Default = 0.05,
+    },
+    Callback = function(value)
+        SETTINGS.FireRate = value
+        WindUI:Notify({
+            Title = "Gun Updated",
+            Content = "Fire rate set to "..value,
+            Duration = 3,
+            Icon = "lucide:check"
+        })
+    end
+})
+--// BULLET TRACERS
+local TracerSection = Guns:Section({
+    Title = "Bullet Tracers",
+    Icon = "lucide:zap",
+    Opened = true
+})
+
+TracerSection:Toggle({
+    Title = "Enable Tracers",
+    Default = false,
+    Callback = function(v)
+        change_color = v
+    end
+})
+
+TracerSection:Colorpicker({
+    Title = "Tracer Color",
+    Desc = "Bullet tracer color",
+    Default = rayColor,
+    Transparency = 0,
+    Locked = false,
+    Callback = function(color)
+        rayColor = color
+    end
+})
+
+
+
+
+
+local AppearanceSection = Guns:Section({
+    Title = "Gun Appearance",
+    Icon = "lucide:paintbrush",
+    Opened = true
+})
+
+AppearanceSection:Toggle({
+    Title = "Change Gun Color",
+    Default = false,
+    Callback = function(v)
+        change_tool_mesh = v
+    end
+})
+
+AppearanceSection:Colorpicker({
+    Title = "Gun Color",
+    Desc = "Weapon mesh color",
+    Default = toolColor,
+    Transparency = 0,
+    Locked = false,
+    Callback = function(color)
+        toolColor = color
+    end
+})
+
+local HitSounds = {
+    ["Original"] = nil, 
+    ["uwu"] = "rbxassetid://8679659744",
+    ["Rust Headshot"] = "rbxassetid://5043539486",
+    ["Skeet"] = "rbxassetid://83717596220569",
+    ["Laser Hit"] = "rbxassetid://8561505457",
+}
+
+
+local originalSoundIds = {}
+
+local currentHitsound = "Original"
+
+local function applyHitsoundToTool(tool)
+    if tool:IsA("Tool") then
+        local handle = tool:FindFirstChild("Handle")
+        if handle and handle:FindFirstChild("ShootSound") then
+            -- Store original SoundId if not stored yet
+            if not originalSoundIds[tool] then
+                originalSoundIds[tool] = handle.ShootSound.SoundId
+            end
+
+            if currentHitsound == "Original" then
+                handle.ShootSound.SoundId = originalSoundIds[tool]
+            else
+                handle.ShootSound.SoundId = HitSounds[currentHitsound]
+            end
+        end
+    end
+end
+
+local function applyHitsoundToAllTools(character)
+    for _, tool in ipairs(character:GetChildren()) do
+        applyHitsoundToTool(tool)
+    end
+end
+
+local player = game.Players.LocalPlayer
+
+-- Dropdown for hitsounds
+local Dropdown = Guns:Dropdown({
+    Title = "Select Gun HitSound",
+    Desc = "Choose a hitsound for your equipped tool",
+    Values = {"Original", "uwu", "Rust Headshot", "Skeet", "Laser Hit"},
+    Value = currentHitsound,
+    Callback = function(selected)
+        currentHitsound = selected
+        if player.Character then
+            applyHitsoundToAllTools(player.Character)
+        end
+
+        WindUI:Notify({
+            Title = "Hitsound Changed",
+            Content = "Selected: "..selected,
+            Duration = 3,
+            Icon = "check"
+        })
+    end
+})
+
+-- Apply hitsound when character spawns
+player.CharacterAdded:Connect(function(char)
+    applyHitsoundToAllTools(char)
+    char.ChildAdded:Connect(function(child)
+        applyHitsoundToTool(child)
+    end)
+end)
+
+-- Apply to existing character
+if player.Character then
+    applyHitsoundToAllTools(player.Character)
+    player.Character.ChildAdded:Connect(function(child)
+        applyHitsoundToTool(child)
+    end)
+end
+
+
+
+ModifierSection:Slider({
+    Title = "Spread Radius",
+    Desc = "Accuracy control",
+    Step = 0.1,
+    Value = {
+        Min = 0,
+        Max = 10,
+        Default = 0,
+    },
+    Callback = function(value)
+        SETTINGS.SpreadRadius = value
+    end
+})
+local Paragraph = Settings:Paragraph({
+    Title = "Join Discord",
+    Desc = "Pls join our discord server for more scripts and updates",
+    Color = Color3.fromHex("#ff00ff"),
+    Image = "rbxassetid://136681242242385",
+    ImageSize = 100,
+    Thumbnail = "rbxassetid://136681242242385",
+    ThumbnailSize = 100,
+    Locked = false,
+    Buttons = {
+        {
+            Icon = "lucide:link",
+            Title = "Copy Link",
+            Callback = function()
+                -- Attempt to open link or copy to clipboard
+                
+                    setclipboard("https://discord.gg/9sb5JJXJ2e")
+                    WindUI:Notify({
+                        Title = "Link Copied",
+                        Content = "Discord invite link copied to clipboard!",
+                        Duration = 3,
+                        Icon = "check",
+                    })
+                end
+             
+        }
+    }
+})
+
+local originalSky = workspace:FindFirstChildOfClass("Sky")
+
+
+local Skyboxes = {
+    ["Original"] = originalSky and {
+        ["SkyboxBk"] = originalSky.SkyboxBk,
+        ["SkyboxDn"] = originalSky.SkyboxDn,
+        ["SkyboxFt"] = originalSky.SkyboxFt,
+        ["SkyboxLf"] = originalSky.SkyboxLf,
+        ["SkyboxRt"] = originalSky.SkyboxRt,
+        ["SkyboxUp"] = originalSky.SkyboxUp
+    } or nil,
+    ["Blue Nebula"] = {
+        SkyboxBk = "rbxassetid://1441833081",
+        SkyboxDn = "rbxassetid://1441833233",
+        SkyboxFt = "rbxassetid://1441833470",
+        SkyboxLf = "rbxassetid://1441833650",
+        SkyboxRt = "rbxassetid://1441833841",
+        SkyboxUp = "rbxassetid://1441834038"
+    },
+    ["Elegant Morning"] = {
+        SkyboxBk = "rbxassetid://153767241",
+        SkyboxDn = "rbxassetid://153767216",
+        SkyboxFt = "rbxassetid://153767266",
+        SkyboxLf = "rbxassetid://153767200",
+        SkyboxRt = "rbxassetid://153767231",
+        SkyboxUp = "rbxassetid://153767288",
+    },
+    ["Aesthetic Night"] = {
+        SkyboxBk = "rbxassetid://1045964490",
+        SkyboxDn = "rbxassetid://1045964368",
+        SkyboxFt = "rbxassetid://1045964655",
+        SkyboxLf = "rbxassetid://1045964655",
+        SkyboxRt = "rbxassetid://1045964655",
+        SkyboxUp = "rbxassetid://1045962969",
+    },
+    ["Deep Space"] = {
+        SkyboxBk = "rbxassetid://159248188",
+        SkyboxDn = "rbxassetid://159248183",
+        SkyboxFt = "rbxassetid://159248187",
+        SkyboxLf = "rbxassetid://159248173",
+        SkyboxRt = "rbxassetid://159248192",
+        SkyboxUp = "rbxassetid://159248176",
+    },
+}
+
+local SkySection = Visuals:Section({
+    Title = "Skybox Changer",
+    Icon = "lucide:cloud-sun",
+    Opened = true
+})
+
+SkySection:Dropdown({
+    Title = "Select Skybox",
+    Desc = "Choose a skybox to apply",
+    Values = {"Original", "Blue Nebula", "Elegant Morning", "Aesthetic Night", "Deep Space"},
+    Value = "Original",
+    Callback = function(selected)
+        -- remove old Sky in Lighting
+        local old = game.Lighting:FindFirstChildOfClass("Sky")
+        if old then old:Destroy() end
+
+        local data = Skyboxes[selected]
+        if data then
+            local sky = Instance.new("Sky")
+            for prop, id in pairs(data) do
+                sky[prop] = id
+            end
+            sky.Parent = game.Lighting
+        end
+    end
+})
+
+
+
+local RunService = game:GetService("RunService")
+local currentTime = tonumber(game.Lighting.TimeOfDay:sub(1,2)) or 12
+
+local TimeSlider = SkySection:Slider({
+    Title = "Time of Day",
+    Desc = "Change the game's time",
+    Step = 0.1,
+    Value = {
+        Min = 0,
+        Max = 24,
+        Default = currentTime,
+    },
+    Callback = function(value)
+        currentTime = value
+    end
+})
+
+-- Keep forcing the time every frame
+RunService.RenderStepped:Connect(function()
+    game.Lighting.TimeOfDay = string.format("%02d:00:00", math.floor(currentTime))
+end)
+
+local Colorpicker = SkySection:Colorpicker({
+    Title = "Ambient Color",
+    Desc = "Change the ambient color of the game",
+    Default = game.Lighting.OutdoorAmbient,
+    Transparency = 0,
+    Locked = false,
+    Callback = function(color)
+        game.Lighting.OutdoorAmbient = color
+    end
+})
+
+
+local function showPopup(playerName)
+    local popup = WindUI:Popup({
+        Title = "ObfHub Owner is in your game!",
+        Icon = "star",
+        Content = "Say hi to " .. playerName .. "!",
+        Buttons = {
+            {
+                Title = "I DONT FUCKING CARE",
+                Callback = function()
+                    print("")
+                end,
+                Variant = "Tertiary",
+            },
+            {
+                Title = "NICE",
+                Icon = "arrow-right",
+                Callback = function()
+                    print("")
+                end,
+                Variant = "Primary",
+            }
+        }
+    })
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    if player.Name == SPECIAL_NAME then
+        showPopup(player.Name)
+    end
+end
+
+-- Check players joining later
+Players.PlayerAdded:Connect(function(player)
+    if player.Name == SPECIAL_NAME then
+        showPopup(player.Name)
+    end
+end)
+
+--changelog
+local ChangelogSection = Settings:Section({
+    Title = "Changelog",
+    Icon = "lucide:list",
+    Opened = false
+})
+ChangelogSection:Paragraph({
+    Title = "v1.1.0 - January 30, 2026",
+    Desc = "- Added Noclip(nosolaraorxeno) \n- Added Arest Aura \n- Added Jump Cooldown\n- Added different silent aim for different executor \n- Removed weapon icons",
+    Color = Color3.fromHex("#ff00ff"),
+    Locked = true
+})
