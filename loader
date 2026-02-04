@@ -1,0 +1,30 @@
+local PlaceId = game.PlaceId
+local HttpGet = game.HttpGet
+local exec = identifyexecutor and identifyexecutor():lower() or ""
+
+local PL_XenoSolara = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/PLXeno"
+local PL_HighUNC    = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/PLHighUNC"
+
+local Games = {
+    [71480482338212] = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/BedFight",     -- BedFight
+    [14259168147]    = "https://raw.githubusercontent.com/obfhub/paid/refs/heads/main/basketmball",   -- Basketball Legends
+    [301549746]      = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/CB",          -- Counter Blox
+}
+
+if PlaceId == 155615604 then
+    local url
+    if exec:find("xeno") or exec:find("solara") then
+        url = PL_XenoSolara
+    else
+        url = PL_HighUNC
+    end
+    loadstring(HttpGet(game, url))()
+    return
+end
+
+local gameURL = Games[PlaceId]
+if gameURL then
+    loadstring(HttpGet(game, gameURL))()
+else
+    warn("Game not supported")
+end
