@@ -9,6 +9,7 @@ local Games = {
     [71480482338212] = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/BedFight",     -- BedFight
     [14259168147]    = "https://raw.githubusercontent.com/obfhub/paid/refs/heads/main/basketmball",   -- Basketball Legends
     [301549746]      = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/CB",          -- Counter Blox
+    [90568084448279] = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/onetap", -- onetap
 }
 
 if PlaceId == 155615604 then
