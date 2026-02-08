@@ -9,7 +9,6 @@ local Games = {
     [71480482338212] = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/BedFight",     -- BedFight
     [14259168147]    = "https://raw.githubusercontent.com/obfhub/paid/refs/heads/main/basketmball",   -- Basketball Legends
     [301549746]      = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/CB",          -- Counter Blox
-    [90568084448279] = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/onetap", -- onetap
 }
 
 if PlaceId == 155615604 then
@@ -18,6 +17,17 @@ if PlaceId == 155615604 then
         url = PL_XenoSolara
     else
         url = PL_HighUNC
+    end
+    loadstring(HttpGet(game, url))()
+    return
+end
+
+if PlaceId == 90568084448279 then
+    local url
+    if exec:find("xeno") or exec:find("solara") then
+        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/onetap"
+    else
+        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/ONETAPHIGHUNC"
     end
     loadstring(HttpGet(game, url))()
     return
