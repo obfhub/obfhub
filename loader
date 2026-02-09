@@ -24,9 +24,9 @@ end
 if PlaceId == 90568084448279 then
     local onetapurl
     if exec:find("xeno") or exec:find("solara") then
-        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/onetap"
+        onetapurl = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/onetap"
     else
-        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/ONETAPHIGHUNC"
+        onetapurl = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/ONETAPHIGHUNC"
     end
     loadstring(HttpGet(game, url))()
     return
@@ -35,9 +35,9 @@ end
 if PlaceId == 71480482338212 then
     local bedurl
     if exec:find("xeno") or exec:find("solara") then
-        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/bedfightxeno"
+        bedurl = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/bedfightxeno"
     else
-        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/BedFight"
+        bedurl = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/BedFight"
     end
     loadstring(HttpGet(game, url))()
     return
