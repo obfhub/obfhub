@@ -32,13 +32,12 @@ if PlaceId == 90568084448279 then
     return
 end
 
-
 if PlaceId == 71480482338212 then
     local bedurl
     if exec:find("xeno") or exec:find("solara") then
-        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/BedFight"
-    else
         url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/bedfightxeno"
+    else
+        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/BedFight"
     end
     loadstring(HttpGet(game, url))()
     return
