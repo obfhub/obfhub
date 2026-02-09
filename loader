@@ -6,7 +6,6 @@ local PL_XenoSolara = "https://raw.githubusercontent.com/obfhub/obfhub/refs/head
 local PL_HighUNC    = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/PLHighUNC"
 
 local Games = {
-    [71480482338212] = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/BedFight",     -- BedFight
     [14259168147]    = "https://raw.githubusercontent.com/obfhub/paid/refs/heads/main/basketmball",   -- Basketball Legends
     [301549746]      = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/CB",          -- Counter Blox
 }
@@ -23,7 +22,7 @@ if PlaceId == 155615604 then
 end
 
 if PlaceId == 90568084448279 then
-    local url
+    local onetapurl
     if exec:find("xeno") or exec:find("solara") then
         url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/onetap"
     else
@@ -33,6 +32,17 @@ if PlaceId == 90568084448279 then
     return
 end
 
+
+if PlaceId == 71480482338212 then
+    local bedurl
+    if exec:find("xeno") or exec:find("solara") then
+        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/BedFight"
+    else
+        url = "https://raw.githubusercontent.com/obfhub/obfhub/refs/heads/main/bedfightxeno"
+    end
+    loadstring(HttpGet(game, url))()
+    return
+end
 local gameURL = Games[PlaceId]
 if gameURL then
     loadstring(HttpGet(game, gameURL))()
